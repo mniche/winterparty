@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Input Test</title>
+<style>
+  body { margin: 0; padding: 20px; background: #0b1026; color: #fff; font-family: system-ui, sans-serif; }
+  h1 { margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+  .box { background: #1b2250; border-radius: 12px; padding: 16px; }
+  .box h2 { margin: 0 0 10px; font-size: 22px; }
+  .status { font-size: 16px; opacity: .85; margin: 6px 0; }
+  .ok { color: #6be38b; } .bad { color: #ff6b6b; }
+  button { font-size: 18px; padding: 8px 20px; border: 0; border-radius: 10px; background: #ffd23f; color: #222; cursor: pointer; }
+  video { width: 100%; border-radius: 8px; background: #000; transform: scaleX(-1); }
+  .meter { height: 24px; background: #000; border-radius: 6px; overflow: hidden; margin-top: 10px; }
+  .meter div { height: 100%; width: 0; background: #6be38b; }
+  .keys span, .btns span { display: inline-block; min-width: 34px; margin: 3px; padding: 6px 8px; border-radius: 6px; background: #000; text-align: center; }
+  .btns span.on { background: #ffd23f; color: #222; }
+  .stick { display: inline-block; width: 90px; height: 90px; margin: 8px; border-radius: 50%; background: #000; position: relative; }
+  .stick div { position: absolute; width: 18px; height: 18px; border-radius: 50%; background: #ffd23f; left: 36px; top: 36px; }
+  .big { font-size: 48px; text-align: center; min-height: 60px; }
+</style>
+</head>
+<body>
+<h1>🎮 Input Test</h1>
+<p class="status">Use Chrome. Allow camera/microphone when asked. Press a controller button to wake it up.</p>
+<div class="grid">
+
+  <div class="box">
+    <h2>📷 Webcam</h2>
+    <button id="camBtn">Start camera</button>
+    <p class="status" id="camStatus">Off</p>
+    <video id="video" autoplay playsinline muted></video>
+  </div>
+
+  <div class="box">
+    <h2>🎤 Microphone</h2>
+    <button id="micBtn">Start microphone</button>
+    <p class="status" id="micStatus">Off — shout or clap to see the bar move</p>
+    <div class="meter"><div id="micBar"></div></div>
+  </div>
+
+  <div class="box">
+    <h2>🕹️ Controller</h2>
+    <p class="status" id="padStatus">No controller yet — plug it in and press any button</p>
+    <div class="btns" id="padBtns"></div>
+    <div><span class="stick"><div id="stickL"></div></span><span class="stick"><div id="stickR"></div></span></div>
+  </div>
+
+  <div class="box">
+    <h2>⌨️ Keyboard &amp; 🖱️ Mouse</h2>
+    <p class="status">Last key pressed:</p>
+    <div class="big" id="lastKey">–</div>
+    <p class="status" id="mouse">Mouse: –</p>
+  </div>
+
+</div>
+<script>
+// Webcam
+document.getElementById('camBtn').onclick = async () => {
+  const s = document.getElementById('camStatus');
+  try {
+    document.getElementById('video').srcObject = await navigator.mediaDevices.getUserMedia({ video: true });
+    s.textContent = '✅ Camera works'; s.className = 'status ok';
+  } catch (e) { s.textContent = '❌ ' + e.name + ': ' + e.message; s.className = 'status bad'; }
+};
+
+// Microphone level meter
+document.getElementById('micBtn').onclick = async () => {
+  const s = document.getElementById('micStatus');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ac = new AudioContext(), an = ac.createAnalyser();
+    ac.createMediaStreamSource(stream).connect(an);
+    const data = new Uint8Array(an.fftSize);
+    s.textContent = '✅ Microphone works — make some noise'; s.className = 'status ok';
+    (function tick() {
+      an.getByteTimeDomainData(data);
+      let peak = 0; for (const v of data) peak = Math.max(peak, Math.abs(v - 128));
+      document.getElementById('micBar').style.width = Math.min(100, peak / 1.28) + '%';
+      requestAnimationFrame(tick);
+    })();
+  } catch (e) { s.textContent = '❌ ' + e.name + ': ' + e.message; s.className = 'status bad'; }
+};
+
+// Game controller
+function pollPad() {
+  const pad = [...navigator.getGamepads()].find(p => p);
+  if (pad) {
+    document.getElementById('padStatus').innerHTML = '<span class="ok">✅ ' + pad.id + '</span>';
+    document.getElementById('padBtns').innerHTML =
+      pad.buttons.map((b, i) => `<span class="${b.pressed ? 'on' : ''}">${i}</span>`).join('');
+    const move = (id, x, y) => {
+      const el = document.getElementById(id);
+      el.style.left = 36 + (x || 0) * 36 + 'px'; el.style.top = 36 + (y || 0) * 36 + 'px';
+    };
+    move('stickL', pad.axes[0], pad.axes[1]);
+    move('stickR', pad.axes[2], pad.axes[3]);
+  }
+  requestAnimationFrame(pollPad);
+}
+pollPad();
+
+// Keyboard and mouse
+addEventListener('keydown', e => { document.getElementById('lastKey').textContent = e.key === ' ' ? 'Space' : e.key; });
+addEventListener('mousemove', e => { document.getElementById('mouse').textContent = `Mouse: ${e.clientX}, ${e.clientY}`; });
+addEventListener('mousedown', e => { document.getElementById('mouse').textContent = `Mouse: clicked button ${e.button}`; });
+</script>
+</body>
+</html>
