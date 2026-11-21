@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Star Catcher</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1026; font-family: system-ui, sans-serif; color: #fff; overflow: hidden; }
+  canvas { display: block; margin: 0 auto; background: linear-gradient(#0b1026, #2a1b5c); touch-action: none; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: rgba(11,16,38,.85); }
+  #overlay h1 { font-size: 56px; margin: 0 0 8px; }
+  #overlay p { font-size: 20px; margin: 6px; opacity: .9; }
+  button { margin-top: 20px; font-size: 24px; padding: 12px 36px; border: 0; border-radius: 12px; background: #ffd23f; color: #222; cursor: pointer; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="overlay">
+  <h1 id="title">⭐ Star Catcher ⭐</h1>
+  <p id="msg">Catch the stars, dodge the rocks!</p>
+  <p>⬅️ ➡️ arrow keys (or A / D), or drag with mouse / finger</p>
+  <button id="start">Play</button>
+</div>
+<script>
+// ====== EASY KNOBS — the kids can ask to change these ======
+const CONFIG = {
+  gameSeconds: 60,       // how long one round lasts
+  playerEmoji: '🐱',     // who catches the stars
+  goodEmoji: '⭐',       // thing to catch
+  bonusEmoji: '🌈',      // rare thing, worth more
+  badEmoji: '🪨',        // thing to avoid
+  goodPoints: 1,
+  bonusPoints: 5,
+  lives: 3,
+  playerSpeed: 9,
+  startFallSpeed: 3,     // falling speed at start
+  speedUpPerSecond: 0.06,// how much faster it gets each second
+  spawnEveryMs: 650,     // new falling thing this often
+  badChance: 0.3,        // 30% of falling things are rocks
+  bonusChance: 0.05,
+};
+// ===========================================================
+
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+const overlay = document.getElementById('overlay');
+const W = 800, H = 600;
+function fit() {
+  const s = Math.min(innerWidth / W, innerHeight / H);
+  cv.width = W; cv.height = H;
+  cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px';
+}
+addEventListener('resize', fit); fit();
+
+let player, items, score, lives, timeLeft, running, lastSpawn, lastT, elapsed, pops, best = +localStorage.getItem?.('starBest') || 0;
+const keys = {};
+addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if (e.key === ' ' && !running) start(); });
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+function pointer(e) {
+  const r = cv.getBoundingClientRect();
+  const x = ((e.touches ? e.touches[0].clientX : e.clientX) - r.left) * (W / r.width);
+  if (player) player.x = Math.max(30, Math.min(W - 30, x));
+}
+cv.addEventListener('mousemove', pointer);
+cv.addEventListener('touchmove', e => { e.preventDefault(); pointer(e); }, { passive: false });
+
+function start() {
+  player = { x: W / 2, y: H - 50 };
+  items = []; pops = [];
+  score = 0; lives = CONFIG.lives; timeLeft = CONFIG.gameSeconds; elapsed = 0;
+  lastSpawn = 0; lastT = performance.now(); running = true;
+  overlay.classList.add('hidden');
+  requestAnimationFrame(loop);
+}
+
+function spawn() {
+  const r = Math.random();
+  const type = r < CONFIG.bonusChance ? 'bonus' : r < CONFIG.bonusChance + CONFIG.badChance ? 'bad' : 'good';
+  items.push({ x: 30 + Math.random() * (W - 60), y: -30, type, wobble: Math.random() * 6 });
+}
+
+function end() {
+  running = false;
+  if (score > best) { best = score; try { localStorage.setItem('starBest', best); } catch {} }
+  document.getElementById('title').textContent = lives <= 0 ? '💥 Ouch! Game Over' : '⏰ Time\'s up!';
+  document.getElementById('msg').textContent = `You scored ${score} — best: ${best}`;
+  document.getElementById('start').textContent = 'Play again';
+  overlay.classList.remove('hidden');
+}
+
+function loop(t) {
+  if (!running) return;
+  const dt = Math.min(50, t - lastT); lastT = t;
+  elapsed += dt / 1000; timeLeft = CONFIG.gameSeconds - elapsed;
+  if (timeLeft <= 0) { timeLeft = 0; draw(); return end(); }
+
+  if (keys['arrowleft'] || keys['a']) player.x -= CONFIG.playerSpeed;
+  if (keys['arrowright'] || keys['d']) player.x += CONFIG.playerSpeed;
+  player.x = Math.max(30, Math.min(W - 30, player.x));
+
+  if (t - lastSpawn > CONFIG.spawnEveryMs * Math.max(0.4, 1 - elapsed / 120)) { spawn(); lastSpawn = t; }
+  const speed = CONFIG.startFallSpeed + elapsed * CONFIG.speedUpPerSecond;
+  for (const it of items) {
+    it.y += speed * (dt / 16);
+    if (Math.abs(it.x - player.x) < 40 && Math.abs(it.y - player.y) < 35) {
+      it.hit = true;
+      if (it.type === 'bad') { lives--; pops.push({ x: it.x, y: it.y, txt: '-1 ❤️', c: '#ff5c5c', life: 40 }); }
+      else { const p = it.type === 'bonus' ? CONFIG.bonusPoints : CONFIG.goodPoints; score += p; pops.push({ x: it.x, y: it.y, txt: '+' + p, c: '#ffd23f', life: 40 }); }
+    }
+  }
+  items = items.filter(it => !it.hit && it.y < H + 40);
+  pops.forEach(p => { p.y -= 1; p.life--; }); pops = pops.filter(p => p.life > 0);
+  if (lives <= 0) { draw(); return end(); }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '40px serif';
+  for (const it of items) {
+    const e = it.type === 'bad' ? CONFIG.badEmoji : it.type === 'bonus' ? CONFIG.bonusEmoji : CONFIG.goodEmoji;
+    ctx.fillText(e, it.x + Math.sin((it.y + it.wobble * 20) / 30) * 4, it.y);
+  }
+  ctx.font = '56px serif'; ctx.fillText(CONFIG.playerEmoji, player.x, player.y);
+  ctx.font = 'bold 22px system-ui';
+  pops.forEach(p => { ctx.fillStyle = p.c; ctx.globalAlpha = p.life / 40; ctx.fillText(p.txt, p.x, p.y); });
+  ctx.globalAlpha = 1; ctx.fillStyle = '#fff'; ctx.font = 'bold 26px system-ui';
+  ctx.textAlign = 'left'; ctx.fillText('Score: ' + score, 20, 30);
+  ctx.textAlign = 'center'; ctx.fillText('⏱ ' + Math.ceil(timeLeft), W / 2, 30);
+  ctx.textAlign = 'right'; ctx.fillText('❤️'.repeat(Math.max(0, lives)), W - 20, 30);
+}
+document.getElementById('start').onclick = start;
+</script>
+</body>
+</html>
