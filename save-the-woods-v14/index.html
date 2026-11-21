@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Save the Woods! 🐺🌲</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body {
+    background: #0f1f17;
+    color: #f4f7f2;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  #game-wrap {
+    position: relative;
+    width: min(96vw, 1200px);
+    aspect-ratio: 1200 / 760;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.65);
+    border: 3px solid #2e5a40;
+    background: #183625;
+  }
+  canvas#game {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  /* HUD */
+  #hud {
+    position: absolute;
+    top: 12px; left: 16px; right: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(12, 28, 19, 0.78);
+    backdrop-filter: blur(6px);
+    padding: 10px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(134, 239, 172, 0.25);
+    font-size: 1.15rem;
+    font-weight: 700;
+    pointer-events: none;
+  }
+  .hud-group { display: flex; gap: 18px; align-items: center; }
+  .badge {
+    background: rgba(255,255,255,0.09);
+    padding: 4px 12px;
+    border-radius: 10px;
+  }
+  /* Webcam Mini Preview + 8-Zone Grid */
+  #cam-box {
+    position: absolute;
+    bottom: 14px; right: 14px;
+    width: 280px;
+    background: rgba(10, 22, 16, 0.9);
+    border: 2px solid #4ade80;
+    border-radius: 14px;
+    padding: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  #cam-canvas {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border-radius: 8px;
+    display: block;
+    background: #07120c;
+  }
+  #cam-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: #bbf7d0;
+  }
+  #cam-controls input[type=range] { flex: 1; accent-color: #4ade80; cursor: pointer; }
+  #cam-status {
+    font-size: 0.75rem;
+    color: #86efac;
+    text-align: center;
+    margin-top: 4px;
+    min-height: 1.1em;
+  }
+  /* Overlays */
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 24, 16, 0.88);
+    backdrop-filter: blur(8px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 28px;
+    z-index: 20;
+  }
+  .hidden { display: none !important; }
+  h1 { font-size: 2.8rem; color: #86efac; margin-bottom: 8px; }
+  .subtitle { font-size: 1.15rem; color: #d1fae5; margin-bottom: 18px; max-width: 720px; }
+  .grid-guide {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    width: 320px;
+    background: rgba(255,255,255,0.06);
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(134, 239, 172, 0.3);
+    margin-bottom: 16px;
+    font-size: 0.9rem;
+  }
+  .g-cell {
+    background: rgba(34, 197, 94, 0.18);
+    border: 1px solid #4ade80;
+    border-radius: 8px;
+    padding: 8px 4px;
+    font-weight: 700;
+  }
+  .g-cell.top { background: rgba(251, 146, 60, 0.22); border-color: #fb923c; }
+  .rules-list {
+    text-align: left;
+    background: rgba(255,255,255,0.06);
+    padding: 14px 20px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    line-height: 1.65;
+    font-size: 0.98rem;
+  }
+  button.primary-btn {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: #fff;
+    border: none;
+    padding: 15px 42px;
+    font-size: 1.35rem;
+    font-weight: 800;
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(34, 197, 94, 0.45);
+    transition: transform 0.12s;
+  }
+  button.primary-btn:hover { transform: scale(1.05); }
+</style>
+</head>
+<body>
+
+<div id="game-wrap">
+  <canvas id="game" width="1200" height="760"></canvas>
+
+  <div id="hud">
+    <div class="hud-group">
+      <div class="badge" id="hud-score">Score: 0</div>
+      <div class="badge" id="hud-trees">🌲 5 / 5</div>
+      <div class="badge" id="hud-bosses">Bosses: 0 / 3</div>
+    </div>
+    <div class="hud-group">
+      <div class="badge" id="hud-action">Ready</div>
+      <div class="badge" id="hud-timer">⏱️ 90s</div>
+    </div>
+  </div>
+
+  <div id="cam-box">
+    <canvas id="cam-canvas" width="240" height="180"></canvas>
+    <div id="cam-controls">
+      <span>Touch Sens</span>
+      <input type="range" id="sens-slider" min="8" max="60" value="22" />
+      <span id="sens-val">22</span>
+    </div>
+    <div id="cam-status">Camera starts on Play</div>
+  </div>
+
+  <!-- Start Screen -->
+  <div id="start-screen" class="overlay">
+    <h1>🐺 Save the Woods! 🌲</h1>
+    <p class="subtitle">Wave <strong>one hand</strong> in a box to move the wolf hero!</p>
+
+    <div class="grid-guide">
+      <div class="g-cell top">1<br>↖ Jump Left</div>
+      <div class="g-cell top">2<br>↗ Jump Right</div>
+      <div class="g-cell">3<br>⬅ Walk Left</div>
+      <div class="g-cell">4<br>➡ Walk Right</div>
+    </div>
+
+    <div class="rules-list">
+      <div>🐾 <strong>Move:</strong> Wave in a box to walk or jump that way!</div>
+      <div>✨ <strong>Defeat Robots:</strong> Stand next to a chopper robot 🤖 and keep waving to pop it!</div>
+      <div>🔮 <strong>Defeat 3 Bosses:</strong> Touch the <b>2 box numbers</b> shown above each boss's head!</div>
+      <div>⌨️ <strong>Keyboard Backup:</strong> Arrows <code>← → ↑</code> to move/jump, Keys <code>1–4</code> for the boxes.</div>
+    </div>
+
+    <button class="primary-btn" id="play-btn">▶ Play Game</button>
+  </div>
+
+  <!-- Game Over Screen -->
+  <div id="gameover-screen" class="overlay hidden">
+    <h1 id="go-title">You Saved the Woods!</h1>
+    <p class="subtitle" id="go-summary"></p>
+    <div class="rules-list" style="text-align:center; font-size:1.2rem;">
+      <div id="go-stars" style="font-size:2rem; margin-bottom:8px;">⭐⭐⭐⭐⭐</div>
+      <div id="go-score">Score: 0</div>
+      <div id="go-best" style="color:#fde047; margin-top:4px;">Best: 0</div>
+    </div>
+    <button class="primary-btn" id="replay-btn">🔄 Play Again</button>
+  </div>
+</div>
+
+<video id="webcam" autoplay playsinline muted style="display:none;"></video>
+
+<script>
+const CONFIG = {
+  roundSeconds: 90,
+  groundY: 650,
+  marginX: 75,
+  heroSize: 112,
+  walkSpeed: 420,
+  jumpVx: 440,
+  jumpVy: -740,
+  gravity: 1650,
+  treeCount: 5,
+  treeSize: 130,
+  robotSize: 108,
+  robotSpeed: 68,
+  chopDuration: 3.5,
+  rubKillDuration: 0.65,
+  maxActiveRobots: 3,
+  robotSpawnInterval: 4.2,
+  zonePixelThreshold: 22,
+  comboCooldownMs: 260,
+  motionDiffThreshold: 75,   // how different a pixel must be to count as "moving"
+  bossStepCooldownMs: 320,   // pause between boss sequence touches
+  firstRobotDelay: 1.2,
+  robotChopReach: 42,        // how close a robot must be to chop a tree
+  rubReachX: 88,             // how close the wolf must be to rub a robot
+  rubReachY: 90,
+  robotPoints: 1,
+  bossPoints: 15,
+  treeBonusPoints: 10,       // per surviving tree when you win
+  bossY: 350,
+  bossSwayX: 140,
+  bossSchedule: [
+    // Box numbers: 1 = top-left, 2 = top-right, 3 = bottom-left, 4 = bottom-right
+    { time: 10, shape: 'TRIANGLE △', icon: '△', seq: [2, 3], color: '#38bdf8' },
+    { time: 35, shape: 'SQUARE □',   icon: '□', seq: [1, 4], color: '#f472b6' },
+    { time: 60, shape: 'CIRCLE ○',   icon: '○', seq: [2, 4], color: '#facc15' }
+  ]
+};
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const camCanvas = document.getElementById('cam-canvas');
+const camCtx = camCanvas.getContext('2d');
+const video = document.getElementById('webcam');
+const sensSlider = document.getElementById('sens-slider');
+const sensVal = document.getElementById('sens-val');
+
+sensSlider.value = CONFIG.zonePixelThreshold;
+sensVal.textContent = CONFIG.zonePixelThreshold;
+sensSlider.addEventListener('input', () => {
+  CONFIG.zonePixelThreshold = Number(sensSlider.value);
+  sensVal.textContent = sensSlider.value;
+});
+
+// Simple WebAudio feedback (gentle beeps)
+let audioCtx = null;
+function playTone(freq, type = 'sine', dur = 0.12, vol = 0.08) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + dur);
+  } catch (e) {}
+}
+
+// Game State
+let state = {};
+let keys = {};
+let camReady = false;
+let prevFrame = null;
+let activeZones = new Array(4).fill(false);
+let zoneEnergy = new Array(4).fill(0);
+let lastJumpTime = 0;
+let lastSeqTouchTime = 0;
+
+function resetGame() {
+  const treeSpacing = (canvas.width - 260) / (CONFIG.treeCount - 1);
+  const trees = Array.from({ length: CONFIG.treeCount }, (_, i) => ({
+    x: 130 + i * treeSpacing,
+    alive: true,
+    chopProgress: 0
+  }));
+
+  state = {
+    running: true,
+    elapsed: 0,
+    score: 0,
+    hero: {
+      x: canvas.width / 2,
+      y: CONFIG.groundY,
+      vx: 0,
+      vy: 0,
+      grounded: true,
+      facing: 1
+    },
+    trees,
+    robots: [],
+    spawnTimer: CONFIG.firstRobotDelay,
+    particles: [],
+    bossIndex: 0,
+    bossesDefeated: 0,
+    currentBoss: null,
+    actionLabel: 'Ready'
+  };
+  spawnRobot();
+}
+
+function spawnRobot() {
+  if (state.robots.length >= CONFIG.maxActiveRobots) return;
+  const fromLeft = Math.random() < 0.5;
+  state.robots.push({
+    x: fromLeft ? 40 : canvas.width - 40,
+    dir: fromLeft ? 1 : -1,
+    rubProgress: 0
+  });
+}
+
+function addParticles(x, y, emoji, count = 6) {
+  for (let i = 0; i < count; i++) {
+    state.particles.push({
+      x, y,
+      vx: (Math.random() - 0.5) * 260,
+      vy: -80 - Math.random() * 180,
+      emoji,
+      life: 0.75
+    });
+  }
+}
+
+// Movement Triggers
+function triggerJump(dir) {
+  const now = performance.now();
+  if (!state.hero.grounded || now - lastJumpTime < CONFIG.comboCooldownMs) return;
+  lastJumpTime = now;
+  state.hero.grounded = false;
+  state.hero.vx = dir * CONFIG.jumpVx;
+  state.hero.vy = CONFIG.jumpVy;
+  state.hero.facing = dir;
+  state.actionLabel = dir < 0 ? '↖ Jump Left' : '↗ Jump Right';
+  playTone(460, 'triangle', 0.16);
+}
+
+function triggerWalk(dir, dt) {
+  if (!state.hero.grounded) return;
+  state.hero.x += dir * CONFIG.walkSpeed * dt;
+  state.hero.facing = dir;
+  state.actionLabel = dir < 0 ? '⬅ Walk Left' : '➡ Walk Right';
+}
+
+function handleZoneInput(dt) {
+  // Combine webcam activeZones with keyboard 1-4 keys
+  const z = activeZones.map((val, idx) => val || !!keys[String(idx + 1)]);
+
+  // One hand per move: 1 = jump left, 2 = jump right, 3 = walk left, 4 = walk right
+  if (z[0]) triggerJump(-1);
+  else if (z[1]) triggerJump(1);
+  if (z[2]) triggerWalk(-1, dt);
+  else if (z[3]) triggerWalk(1, dt);
+
+  // Keyboard Arrow Backup (Q / E = jump left / right, as in the spec)
+  if (keys['KeyQ']) triggerJump(-1);
+  if (keys['KeyE']) triggerJump(1);
+  if (keys['ArrowLeft'] || keys['KeyA']) {
+    if (keys['ArrowUp'] || keys['Space']) triggerJump(-1);
+    else triggerWalk(-1, dt);
+  }
+  if (keys['ArrowRight'] || keys['KeyD']) {
+    if (keys['ArrowUp'] || keys['Space']) triggerJump(1);
+    else triggerWalk(1, dt);
+  }
+
+  // Boss Sequence Touch Check
+  if (state.currentBoss) {
+    const boss = state.currentBoss;
+    const targetZone = boss.seq[boss.step]; // 1-based zone number
+    if (z[targetZone - 1] && performance.now() - lastSeqTouchTime > CONFIG.bossStepCooldownMs) {
+      lastSeqTouchTime = performance.now();
+      boss.step++;
+      addParticles(boss.x, boss.y - 30, '✨', 5);
+      playTone(520 + boss.step * 120, 'sine', 0.14);
+
+      if (boss.step >= boss.seq.length) {
+        // Boss Defeated!
+        addParticles(boss.x, boss.y, '💥', 14);
+        addParticles(boss.x, boss.y - 40, '🌟', 10);
+        playTone(780, 'triangle', 0.3, 0.12);
+        state.score += CONFIG.bossPoints;
+        state.bossesDefeated++;
+        state.currentBoss = null;
+        state.actionLabel = '🎉 Boss Defeated!';
+      }
+    }
+  }
+}
+
+// Webcam 8-Zone Processing
+const procCanvas = document.createElement('canvas');
+procCanvas.width = 160;
+procCanvas.height = 120;
+const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+
+async function initWebcam() {
+  const statusEl = document.getElementById('cam-status');
+  if (camReady) return; // ask for the camera only once
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+    video.srcObject = stream;
+    await video.play();
+    camReady = true;
+    statusEl.textContent = 'Camera on — wave in a box!';
+  } catch (err) {
+    statusEl.textContent = 'No cam — use Keys 1–4 & Arrows';
+  }
+}
+
+function processWebcam() {
+  const w = procCanvas.width;
+  const h = procCanvas.height;
+
+  camCtx.save();
+  camCtx.clearRect(0, 0, camCanvas.width, camCanvas.height);
+
+  if (camReady && video.readyState >= 2) {
+    // Mirror image
+    procCtx.save();
+    procCtx.translate(w, 0);
+    procCtx.scale(-1, 1);
+    procCtx.drawImage(video, 0, 0, w, h);
+    procCtx.restore();
+
+    camCtx.drawImage(procCanvas, 0, 0, camCanvas.width, camCanvas.height);
+
+    const frame = procCtx.getImageData(0, 0, w, h).data;
+    if (prevFrame) {
+      const counts = new Array(4).fill(0);
+      const cellW = w / 2;
+      const cellH = h / 2;
+
+      for (let y = 0; y < h; y += 2) {
+        const row = y < cellH ? 0 : 1;
+        for (let x = 0; x < w; x += 2) {
+          const idx = (y * w + x) * 4;
+          const diff = Math.abs(frame[idx] - prevFrame[idx]) +
+                       Math.abs(frame[idx + 1] - prevFrame[idx + 1]) +
+                       Math.abs(frame[idx + 2] - prevFrame[idx + 2]);
+          if (diff > CONFIG.motionDiffThreshold) {
+            const col = Math.min(1, Math.floor(x / cellW));
+            counts[row * 2 + col]++;
+          }
+        }
+      }
+
+      for (let i = 0; i < 4; i++) {
+        zoneEnergy[i] = counts[i];
+        activeZones[i] = counts[i] >= CONFIG.zonePixelThreshold;
+      }
+    }
+    prevFrame = new Uint8ClampedArray(frame);
+  }
+
+  // Draw 4-Box Overlay on Mini Preview
+  const cw = camCanvas.width / 2;
+  const ch = camCanvas.height / 2;
+  const targetBossZone = state.currentBoss ? state.currentBoss.seq[state.currentBoss.step] : -1;
+  const boxLabels = ['↖ Jump', 'Jump ↗', '⬅ Walk', 'Walk ➡'];
+
+  for (let i = 0; i < 4; i++) {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const x = col * cw;
+    const y = row * ch;
+    const isPressed = activeZones[i] || !!keys[String(i + 1)];
+    const isBossTarget = (i + 1) === targetBossZone;
+
+    if (isPressed) {
+      camCtx.fillStyle = row === 0 ? 'rgba(251, 146, 60, 0.55)' : 'rgba(74, 222, 128, 0.55)';
+      camCtx.fillRect(x, y, cw, ch);
+    } else if (isBossTarget) {
+      camCtx.fillStyle = 'rgba(56, 189, 248, 0.35)';
+      camCtx.fillRect(x, y, cw, ch);
+    }
+
+    camCtx.strokeStyle = isBossTarget ? '#38bdf8' : 'rgba(255,255,255,0.55)';
+    camCtx.lineWidth = isBossTarget ? 3 : 1;
+    camCtx.strokeRect(x, y, cw, ch);
+
+    camCtx.fillStyle = '#ffffff';
+    camCtx.font = 'bold 16px sans-serif';
+    camCtx.fillText(String(i + 1), x + 8, y + 22);
+    camCtx.font = 'bold 13px sans-serif';
+    camCtx.fillText(boxLabels[i], x + 8, y + ch - 10);
+  }
+  camCtx.restore();
+}
+
+function update(dt) {
+  if (!state.running) return;
+  state.elapsed += dt;
+
+  // Check Boss Schedule
+  if (!state.currentBoss && state.bossIndex < CONFIG.bossSchedule.length) {
+    const nextBoss = CONFIG.bossSchedule[state.bossIndex];
+    if (state.elapsed >= nextBoss.time) {
+      state.currentBoss = {
+        ...nextBoss,
+        x: canvas.width / 2,
+        y: CONFIG.bossY,
+        step: 0,
+        bobPhase: 0
+      };
+      state.bossIndex++;
+      playTone(320, 'sawtooth', 0.25);
+    }
+  }
+
+  handleZoneInput(dt);
+
+  // Hero Physics
+  const h = state.hero;
+  if (!h.grounded) {
+    h.x += h.vx * dt;
+    h.y += h.vy * dt;
+    h.vy += CONFIG.gravity * dt;
+    if (h.y >= CONFIG.groundY) {
+      h.y = CONFIG.groundY;
+      h.vx = 0;
+      h.vy = 0;
+      h.grounded = true;
+      addParticles(h.x, CONFIG.groundY + 10, '💨', 3);
+    }
+  }
+  h.x = Math.max(CONFIG.marginX, Math.min(canvas.width - CONFIG.marginX, h.x));
+
+  // Spawn Robots
+  state.spawnTimer -= dt;
+  if (state.spawnTimer <= 0) {
+    spawnRobot();
+    state.spawnTimer = CONFIG.robotSpawnInterval;
+  }
+
+  // Update Robots & Rubbing Mechanic
+  const anyInputActive = activeZones.some(Boolean) || Object.values(keys).some(Boolean);
+  for (let i = state.robots.length - 1; i >= 0; i--) {
+    const r = state.robots[i];
+    // Find nearest living tree
+    let targetTree = null;
+    let minDist = Infinity;
+    for (const t of state.trees) {
+      if (!t.alive) continue;
+      const d = Math.abs(t.x - r.x);
+      if (d < minDist) { minDist = d; targetTree = t; }
+    }
+
+    if (targetTree) {
+      if (minDist > CONFIG.robotChopReach) {
+        r.dir = targetTree.x > r.x ? 1 : -1;
+        r.x += r.dir * CONFIG.robotSpeed * dt;
+      } else {
+        targetTree.chopProgress += dt;
+        if (targetTree.chopProgress >= CONFIG.chopDuration) {
+          targetTree.alive = false;
+          addParticles(targetTree.x, CONFIG.groundY - 40, '🪵', 6);
+        }
+      }
+    }
+
+    // Hero Rubs Robot to Pop It
+    if (Math.abs(h.x - r.x) < CONFIG.rubReachX && Math.abs(h.y - CONFIG.groundY) < CONFIG.rubReachY && anyInputActive) {
+      r.rubProgress += dt;
+      if (Math.random() < 0.35) addParticles(r.x, CONFIG.groundY - 50, '✨', 1);
+      if (r.rubProgress >= CONFIG.rubKillDuration) {
+        state.score += CONFIG.robotPoints;
+        addParticles(r.x, CONFIG.groundY - 45, '💥', 8);
+        playTone(620, 'triangle', 0.16);
+        state.robots.splice(i, 1);
+      }
+    } else {
+      r.rubProgress = Math.max(0, r.rubProgress - dt * 0.4);
+    }
+  }
+
+  // Boss Animation
+  if (state.currentBoss) {
+    state.currentBoss.bobPhase += dt * 2.5;
+    state.currentBoss.x = canvas.width / 2 + Math.sin(state.currentBoss.bobPhase * 0.6) * CONFIG.bossSwayX;
+  }
+
+  // Update Particles
+  for (let i = state.particles.length - 1; i >= 0; i--) {
+    const p = state.particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+    if (p.life <= 0) state.particles.splice(i, 1);
+  }
+
+  // Win / Lose Checks
+  const aliveTrees = state.trees.filter(t => t.alive).length;
+  const timeLeft = Math.max(0, Math.ceil(CONFIG.roundSeconds - state.elapsed));
+
+  document.getElementById('hud-score').textContent = `Score: ${state.score}`;
+  document.getElementById('hud-trees').textContent = `🌲 ${aliveTrees} / ${CONFIG.treeCount}`;
+  document.getElementById('hud-bosses').textContent = `Bosses: ${state.bossesDefeated} / ${CONFIG.bossSchedule.length}`;
+  document.getElementById('hud-action').textContent = state.actionLabel;
+  document.getElementById('hud-timer').textContent = `⏱️ ${timeLeft}s`;
+
+  if (state.bossesDefeated >= CONFIG.bossSchedule.length) {
+    endGame(true, aliveTrees);
+  } else if (aliveTrees === 0 || timeLeft <= 0) {
+    endGame(false, aliveTrees);
+  }
+}
+
+function endGame(won, aliveTrees) {
+  state.running = false;
+  const bonus = won ? aliveTrees * CONFIG.treeBonusPoints : 0;
+  const finalScore = state.score + bonus;
+  // Safari can block localStorage on file:// — the game must still end.
+  let saved = 0;
+  try { saved = Number(localStorage.getItem('stw_v14_best') || 0); } catch (e) {}
+  const best = Math.max(finalScore, saved);
+  try { localStorage.setItem('stw_v14_best', String(best)); } catch (e) {}
+
+  document.getElementById('go-title').textContent = won ? '🎉 You Saved the Woods!' : '🌲 Forest Overrun!';
+  document.getElementById('go-summary').textContent = won
+    ? `All 3 bosses defeated! +${bonus} tree bonus points!`
+    : 'Try again and guard the trees!';
+  document.getElementById('go-stars').textContent = '⭐'.repeat(aliveTrees) || '🪵';
+  document.getElementById('go-score').textContent = `Final Score: ${finalScore}`;
+  document.getElementById('go-best').textContent = `Best: ${best}`;
+  document.getElementById('gameover-screen').classList.remove('hidden');
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Sky & Forest Floor
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, CONFIG.groundY);
+  skyGrad.addColorStop(0, '#102a20');
+  skyGrad.addColorStop(1, '#23533a');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, canvas.width, CONFIG.groundY);
+
+  ctx.fillStyle = '#2d4a2b';
+  ctx.fillRect(0, CONFIG.groundY, canvas.width, canvas.height - CONFIG.groundY);
+  ctx.fillStyle = '#4ade80';
+  ctx.fillRect(0, CONFIG.groundY, canvas.width, 8);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Before the first Play there is no game state yet — just show the background.
+  if (!state.trees) return;
+
+  // Draw Trees
+  for (const t of state.trees) {
+    ctx.font = `${CONFIG.treeSize}px serif`;
+    ctx.fillText(t.alive ? '🌲' : '🪵', t.x, CONFIG.groundY - 52);
+    if (t.alive && t.chopProgress > 0) {
+      const pct = Math.min(1, t.chopProgress / CONFIG.chopDuration);
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(t.x - 40, CONFIG.groundY - 130, 80, 10);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(t.x - 40, CONFIG.groundY - 130, 80 * pct, 10);
+    }
+  }
+
+  // Draw Boss in Center with Zone Sequence Hint
+  if (state.currentBoss) {
+    const b = state.currentBoss;
+    const bobY = b.y + Math.sin(b.bobPhase) * 10;
+
+    // Hint Banner Above Boss
+    ctx.fillStyle = 'rgba(10, 20, 16, 0.9)';
+    ctx.strokeStyle = b.color;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(b.x - 190, bobY - 165, 380, 86, 16);
+    else ctx.rect(b.x - 190, bobY - 165, 380, 86); // older browsers
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = b.color;
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(`BOSS: ${b.shape}`, b.x, bobY - 138);
+
+    // Draw Sequence Numbers (Highlight Current Target Zone)
+    const seqDisplay = b.seq.map((num, idx) => {
+      if (idx < b.step) return `✅`;
+      if (idx === b.step) return `[ ${num} ]`;
+      return `${num}`;
+    }).join('  →  ');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillText(`Touch: ${seqDisplay}`, b.x, bobY - 102);
+
+    // Boss Sprite
+    ctx.font = '130px serif';
+    ctx.fillText('🤖', b.x, bobY);
+  }
+
+  // Draw Chopper Robots
+  for (const r of state.robots) {
+    ctx.font = `${CONFIG.robotSize}px serif`;
+    ctx.fillText('🤖', r.x, CONFIG.groundY - 45);
+    if (r.rubProgress > 0) {
+      const pct = Math.min(1, r.rubProgress / CONFIG.rubKillDuration);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(r.x - 42, CONFIG.groundY - 115, 84, 12);
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(r.x - 42, CONFIG.groundY - 115, 84 * pct, 12);
+    }
+  }
+
+  // Draw Hero
+  ctx.save();
+  ctx.translate(state.hero.x, state.hero.y - 46);
+  ctx.scale(-state.hero.facing, 1);
+  ctx.font = `${CONFIG.heroSize}px serif`;
+  ctx.fillText('🐺', 0, 0);
+  ctx.restore();
+
+  // Draw Particles
+  for (const p of state.particles) {
+    ctx.font = '34px serif';
+    ctx.fillText(p.emoji, p.x, p.y);
+  }
+}
+
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+  processWebcam();
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code.startsWith('Digit')) {
+    keys[e.code.replace('Digit', '')] = true;
+  }
+  keys[e.code] = true;
+});
+window.addEventListener('keyup', e => {
+  if (e.code.startsWith('Digit')) {
+    keys[e.code.replace('Digit', '')] = false;
+  }
+  keys[e.code] = false;
+});
+
+document.getElementById('play-btn').addEventListener('click', () => {
+  document.getElementById('start-screen').classList.add('hidden');
+  initWebcam();
+  resetGame();
+});
+
+document.getElementById('replay-btn').addEventListener('click', () => {
+  document.getElementById('gameover-screen').classList.add('hidden');
+  resetGame();
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
